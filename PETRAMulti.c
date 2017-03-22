@@ -48,11 +48,22 @@ union
 int fd_petra_in, fd_petra_out ;
 caddr_t pShm;
 caddr_t pSema;
+
+//		0			1				2
+sem_t 	*SemShm, 	*SemChariot, 	*SemArbre;
+
 int readCapt(void);
 int writeAct(void);
 int readAct(void);
 
+caddr_t initSema();
+caddr_t initShm();
+
+int ProcessPiece(void);
+
 int nanoWait(int sec, long nsec);
+void CheckDispenser(void);
+int CheckPlace(void);
 
 
 /***********************************
@@ -81,6 +92,10 @@ int main(int argc, char *argv[])
 	}
 	else
 		printf ("MAIN: PETRA_IN opened\n");
+
+	pShm = initShm();
+	pSema = initSema();
+
 	while(1)
 	{
 		int Place=0;
@@ -90,7 +105,19 @@ int main(int argc, char *argv[])
 			printf("Place non disponible\n");
 			nanoWait(1,0);
 		}
+		sem_wait(SemShm);
+		if((*(pShm+Place) = fork()) == -1)
+		{
+			perror("Error fork() Piece \n");
+			exit(0);
+		}
 
+		if(!(*(pShm+Place)))
+		{
+			ProcessPiece();
+			exit(0);
+		}
+		sem_post(SemShm);
 
 
 
@@ -105,7 +132,7 @@ int main(int argc, char *argv[])
 
 int ProcessPiece(void)
 {
-
+	return 1;
 }
 
 void CheckDispenser(void)
@@ -122,13 +149,15 @@ void CheckDispenser(void)
 int CheckPlace(void)
 {
 	int i=0;
+	sem_wait(SemShm);
 	for(i=0;i<SZTAB;i++)
 	{
-		if(tabPiece[i] == 0)
+		if(*(pShm+i) == 0)
 		{
 			return i;
 		}
 	}
+	sem_post(SemShm);
 	return -1;
 }
 
@@ -155,4 +184,46 @@ int writeAct(void)
 int readAct(void)
 {
 	return read ( fd_petra_out , &u_act.byte , 1 );
+}
+
+caddr_t initShm()
+{
+	int i;
+	caddr_t ret;
+
+	//on mmap le Shm
+	ret = (char *)mmap(0, SZTAB, PROT_WRITE | PROT_READ, MAP_ANONYMOUS | MAP_SHARED, -1, 0);
+	if (*ret == -1)
+		perror("Error mmap()\n");
+
+	//on init le buffer
+	for (i = 0; i < SZTAB; i++)
+	{
+		*(ret+i) = 0;
+	}
+	return ret;
+}
+
+caddr_t initSema()
+{
+	caddr_t ret = (char *)mmap(0, 3*sizeof(sem_t), PROT_WRITE | PROT_READ, MAP_ANONYMOUS | MAP_SHARED, -1, 0);
+	if (*ret == -1)
+		perror("Error Shm semaphore\n ");
+
+	//pour initialisé les variable global au 3 semaphore
+	SemShm = (sem_t*)ret;
+	SemChariot = (sem_t*)(ret+sizeof(sem_t));
+	SemArbre = (sem_t*)(ret+2*sizeof(sem_t));
+
+	//on initialise les 3 semaphore
+	if (sem_init(SemShm, 1, 1) == -1)
+		perror("Error sem_init() sur SemBuf\n");
+
+	if (sem_init(SemChariot, 1, 1) == -1)
+		perror("Error sem_init() sur SemPlace\n");
+
+	if (sem_init(SemArbre, 1, 1) == -1)
+		perror("Error sem_init() sur SemElem\n");
+
+	return ret;
 }
