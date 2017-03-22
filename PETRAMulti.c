@@ -55,16 +55,29 @@ int nanoWait(int sec, long nsec);
  *
  * 		 	MAIN    !!!!!!
  *
- **********************************
+ ***********************************
  */
 int main(int argc, char *argv[])
 {
-
+	CheckDispenser();
 	return 1;
 }
 
+int ProcessPiece(void)
+{
 
+}
 
+void CheckDispenser(void)
+{
+	readCapt();
+	while(u_capt.capt.DE != 0)
+	{
+		printf("Stock vide\n");
+		nanoWait(1,0);
+		readCapt();
+	}
+}
 
 
 
