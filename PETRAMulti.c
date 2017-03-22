@@ -59,7 +59,33 @@ int nanoWait(int sec, long nsec);
  */
 int main(int argc, char *argv[])
 {
+	fd_petra_out = open ( "/dev/actuateursPETRA", O_WRONLY );
+	if ( fd_petra_in == -1 )
+	{
+		perror ( "MAIN : Erreur ouverture PETRA_OUT" );
+		return 1;
+	}
+	else
+		printf ("MAIN: PETRA_OUT opened\n");
+
+
+	fd_petra_in = open ( "/dev/capteursPETRA", O_RDONLY );
+	if ( fd_petra_in == -1 )
+	{
+		perror ( "MAIN : Erreur ouverture PETRA_IN" );
+		return 1;
+	}
+	else
+		printf ("MAIN: PETRA_IN opened\n");
+
 	CheckDispenser();
+
+
+
+	u_act.byte = 0x00;
+	writeAct();
+	close ( fd_petra_in );
+	close ( fd_petra_out );
 	return 1;
 }
 
