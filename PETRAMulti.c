@@ -9,6 +9,8 @@
 #include <fcntl.h>
 #include <time.h>
 
+#define SZTAB (3)
+
 struct	ACTUATEURS
 {
 	unsigned CP : 2; //Chariot
@@ -44,6 +46,8 @@ union
 } u_capt ;
 
 int fd_petra_in, fd_petra_out ;
+caddr_t pShm;
+caddr_t pSema;
 int readCapt(void);
 int writeAct(void);
 int readAct(void);
@@ -77,16 +81,26 @@ int main(int argc, char *argv[])
 	}
 	else
 		printf ("MAIN: PETRA_IN opened\n");
+	while(1)
+	{
+		int Place=0;
+		CheckDispenser();
+		while((Place = CheckPlace()) != -1)
+		{
+			printf("Place non disponible\n");
+			nanoWait(1,0);
+		}
 
-	CheckDispenser();
 
 
 
-	u_act.byte = 0x00;
-	writeAct();
+		u_act.byte = 0x00;
+		writeAct();
+	}
+
 	close ( fd_petra_in );
 	close ( fd_petra_out );
-	return 1;
+	return EXIT_SUCCESS;
 }
 
 int ProcessPiece(void)
@@ -103,6 +117,19 @@ void CheckDispenser(void)
 		nanoWait(1,0);
 		readCapt();
 	}
+}
+
+int CheckPlace(void)
+{
+	int i=0;
+	for(i=0;i<SZTAB;i++)
+	{
+		if(tabPiece[i] == 0)
+		{
+			return i;
+		}
+	}
+	return -1;
 }
 
 
