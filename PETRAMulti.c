@@ -62,7 +62,7 @@ caddr_t initShm();
 int ProcessPiece(void);
 
 int nanoWait(int sec, long nsec);
-void CheckDispenser(void);
+int CheckDispenser(void);
 int CheckPlace(void);
 
 
@@ -99,7 +99,16 @@ int main(int argc, char *argv[])
 	while(1)
 	{
 		int Place=0;
-		CheckDispenser();
+		int FullStop = 0;
+		FullStop = CheckDispenser();
+		if(CheckDispenser == 1)
+		{
+			u_act.byte = 0x00;
+			writeAct();
+			close ( fd_petra_in );
+			close ( fd_petra_out );
+			exit(EXIT_SUCCESS);
+		}
 		while((Place = CheckPlace()) != -1)
 		{
 			printf("Place non disponible\n");
@@ -132,18 +141,177 @@ int main(int argc, char *argv[])
 
 int ProcessPiece(void)
 {
+	int Slot = 0;
+	int CutOut = 0;
+	int i = 0;
+	/*************************
+	 *  Section Prise piece
+	 *************************/
+	sem_wait(SemChariot);
+	u_act.act.CP = 00;
+	writeAct();
+	nanoWait(0,500000000);
+	// A verifier !!!!
+	readCapt();
+	while(u_capt.capt.CS != 1)
+	{
+		readCapt();
+	}
+	// A verifier !!!!
+	printf("Chariot en position 00\n");
+	u_act.act.PA = 1;
+	writeAct();
+	nanoWait(2,0);
+	u_act.act.PV = 1;
+	writeAct();
+	nanoWait(1,0);
+	printf("Ventouse active sur piece\n");
+	u_act.act.PA = 0;
+	writeAct();
+	nanoWait(2,0);
+	u_act.act.CP = 01;
+	writeAct();
+	nanoWait(0,500000000);
+	// A verifier !!!!
+	readCapt();
+	while(u_capt.capt.CS != 1)
+	{
+		readCapt();
+	}
+	// A verifier !!!!
+	printf("Chariot en position 01\n");
+	u_act.act.PV = 0;
+	writeAct();
+	nanoWait(0,500000000);
+	printf("Piece lachee sur C1\n");
+	sem_post(SemChariot);
+	u_act.act.C1 = 1;
+	/*****************************
+	 * Section Detection Slot
+	 *****************************/
+	printf("Demarrage detection du slot\n");
+	readCapt();
+	while(u_capt.capt.S != 1)
+	{
+		readCapt();
+	}
+	// A verifier !!!!
+	for(i = 0; i < 150;i++)
+	{
+		readCapt();
+		if(u_capt.capt.S != 0)
+		{
+			Slot = 1;
+			printf("Slot correct\n");
+			break;
+		}
+		nanoWait(0,10000000);
+	}
+	nanoWait(4,0);
+	// A verifier !!!!
+	/***************************
+	 *  Section Grappin
+	 ***************************/
+	printf("Utilisation du grappin\n");
+	sem_wait(SemArbre);
+	u_act.act.GA = 1;
+	writeAct();
+	nanoWait(0,750000000);
+	u_act.act.PA = 1;
+	writeAct();
+	readCapt();
+	while(u_capt.capt.AP != 1)
+	{
+		readCapt();
+	}
+	u_act.act.C2 = 1;
+	u_act.act.GA = 0;
+	writeAct();
+	nanoWait(1,0);
+	u_act.act.PA = 0;
+	writeAct();
+	sem_post(SemArbre);
+	/********************************
+	 *  Section CutOut
+	 ********************************/
+	readCapt();
+	while(u_capt.capt.L1 != 1)
+	{
+		readCapt();
+	}
+	while(u_capt.capt.L2 != 1)
+	{
+		readCapt();
+	}
+	if((u_capt.capt.L1 == 1) && (u_capt.capt.L2 == 1))
+	{
+		CutOut = 1;
+		printf("CutOut correct\n");
+	}
+	/***********************************
+	 *  Section Choix destination piece
+	 ***********************************/
+	nanoWait(4,0);
+	if((Slot == 1) && (CutOut == 1))
+	{
+		/*********************************
+		 *  Piece dans le bon bac
+		 *********************************/
+		printf("Piece correcte\n");
+		nanoWait(2,0);
+	}
+	else
+	{
+		/**********************************
+		 *  Piece dans la poubelle
+		 **********************************/
+		printf("Piece incorrecte\n");
+		u_act.act.C2 = 0;
+		writeAct();
+		u_act.act.CP = 03;
+		nanoWait(0,500000000);
+		readCapt();
+		while(u_capt.capt.CS != 1)
+		{
+			readCapt();
+		}
+		u_act.act.PA = 1;
+		writeAct();
+		nanoWait(1,0);
+		u_act.act.PV = 1;
+		writeAct();
+		nanoWait(1,0);
+		u_act.act.PA = 0;
+		writeAct();
+		nanoWait(1,0);
+		u_act.act.CP = 02;
+		writeAct();
+		nanoWait(0,500000000);
+		readCapt();
+		while(u_capt.capt.CS != 1)
+		{
+			readCapt();
+		}
+		u_act.act.PV = 0;
+	}
+	printf("Fin processus piece\n");
 	return 1;
 }
 
-void CheckDispenser(void)
+int CheckDispenser(void)
 {
+	int Count = 0;
 	readCapt();
 	while(u_capt.capt.DE != 0)
 	{
 		printf("Stock vide\n");
+		if(Count == 60)
+			return 1;
 		nanoWait(1,0);
+		Count++;
 		readCapt();
 	}
+	return 0;
 }
 
 int CheckPlace(void)
