@@ -48,6 +48,7 @@ union
 int fd_petra_in, fd_petra_out ;
 caddr_t pShm;
 caddr_t pSema;
+int value;
 
 //		0			1				2
 sem_t 	*SemShm, 	*SemChariot, 	*SemArbre;
@@ -92,29 +93,42 @@ int main(int argc, char *argv[])
 	}
 	else
 		printf ("MAIN: PETRA_IN opened\n");
-
+	fflush(stdout);
+	printf("init\n");
+	fflush(stdout);
 	pShm = initShm();
 	pSema = initSema();
 
 	while(1)
 	{
+		printf("Debut while(1)\n");
+		fflush(stdout);
 		int Place=0;
 		int FullStop = 0;
 		FullStop = CheckDispenser();
-		if(CheckDispenser == 1)
+		if(CheckDispenser() == 1)
 		{
+			printf("check dispenser");
 			u_act.byte = 0x00;
 			writeAct();
 			close ( fd_petra_in );
 			close ( fd_petra_out );
 			exit(EXIT_SUCCESS);
 		}
-		while((Place = CheckPlace()) != -1)
+		printf("check place\n");
+		fflush(stdout);
+		while((Place = CheckPlace()) == -1)
 		{
 			printf("Place non disponible\n");
+			fflush(stdout);
 			nanoWait(1,0);
 		}
+		sem_getvalue(SemShm, &value);
+		printf("Place dispo  %d\n", value);
+		fflush(stdout);
 		sem_wait(SemShm);
+		printf("fork\n");
+		fflush(stdout);
 		if((*(pShm+Place) = fork()) == -1)
 		{
 			perror("Error fork() Piece \n");
@@ -141,6 +155,8 @@ int main(int argc, char *argv[])
 
 int ProcessPiece(void)
 {
+	printf("Debut process piece\n");
+	fflush(stdout);
 	int Slot = 0;
 	int CutOut = 0;
 	int i = 0;
@@ -322,6 +338,7 @@ int CheckPlace(void)
 	{
 		if(*(pShm+i) == 0)
 		{
+			sem_post(SemShm);
 			return i;
 		}
 	}
