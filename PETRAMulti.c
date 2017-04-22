@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <signal.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <semaphore.h>
@@ -51,6 +52,7 @@ caddr_t pShmIO;
 caddr_t pSema;
 int value;
 pid_t pidIO;
+struct sigaction interrupt;
 
 
 //		0			1				2
@@ -71,6 +73,7 @@ int CheckPlace(void);
 void affAll(void);
 int processIO(void);
 
+void handlerInterrupt(int s);
 
 /***********************************
  *
@@ -98,9 +101,7 @@ int main(int argc, char *argv[])
 	}
 	else
 		printf ("MAIN: PETRA_IN opened\n");
-		
 	
-
 	
 	fflush(stdout);
 	printf("init\n");
@@ -153,7 +154,7 @@ int main(int argc, char *argv[])
 			exit(0);
 		}
 
-		if((*(pShm+Place)) > 0)
+		if(!(*(pShm+Place)))
 		{
 			ProcessPiece();
 			printf("fin process piece\n");
@@ -276,7 +277,7 @@ int ProcessPiece(void)
 		printf("Piece slot bonne\n");
 	else
 		printf("piece slot mauvais\n");
-	//sem_post(SemDisp);
+	sem_post(SemDisp);
 	nanoWait(4,0);
 	
 	// A verifier !!!!
@@ -338,7 +339,6 @@ int ProcessPiece(void)
 	{
 		printf("CutOut Mauvais");
 	}
-	sem_post(SemDisp);
 	/***********************************
 	 *  Section Choix destination piece
 	 ***********************************/
@@ -356,9 +356,12 @@ int ProcessPiece(void)
 		/**********************************
 		 *  Piece dans la poubelle
 		 **********************************/
-		 sem_wait(SemChariot);
+		sem_wait(SemDisp);
+		sem_wait(SemChariot);
+		sem_wait(SemArbre);
 		printf("Piece incorrecte\n");
 		readAct();
+		u_act.act.C1 = 0;
 		u_act.act.C2 = 0;
 		writeAct();
 		
@@ -394,8 +397,22 @@ int ProcessPiece(void)
 		}
 		readAct();
 		u_act.act.PV = 0;
+		u_act.act.C2 = 1;
+		u_act.act.C1 = 1;
 		writeAct();
+		nanoWait(1,0);
+		sem_post(SemArbre);
+		readAct();
+		u_act.act.CP = 00;
+		writeAct();
+		nanoWait(0,500000000);
+		readCapt();
+		while(u_capt.capt.CS == 1)
+		{
+			readCapt();
+		}
 		sem_post(SemChariot);
+		sem_post(SemDisp);
 	}
 	printf("Fin processus piece\n");
 	fflush(stdout);
@@ -522,14 +539,14 @@ caddr_t initSema()
 	if (*ret == -1)
 		perror("Error Shm semaphore\n ");
 
-	//pour initialisé les variable global au 3 semaphore
+	//pour initialiser les variables globales des 5 semaphores
 	SemShm = (sem_t*)ret;
 	SemChariot = (sem_t*)(ret+sizeof(sem_t));
 	SemArbre = (sem_t*)(ret+2*sizeof(sem_t));
 	SemDisp = (sem_t*)(ret+3*sizeof(sem_t));
 	SemAct = (sem_t*)(ret+4*sizeof(sem_t));
 
-	//on initialise les 3 semaphore
+	//on initialise les 5 semaphores
 	if (sem_init(SemShm, 1, 1) == -1)
 		perror("Error sem_init() sur SemBuf\n");
 
@@ -537,9 +554,7 @@ caddr_t initSema()
 		perror("Error sem_init() sur SemPlace\n");
 
 	if (sem_init(SemArbre, 1, 1) == -1)
-		perror("Error sem_init() sur SemElem\n");
-		
-	if (sem_init(SemDisp, 1, 1) == -1)
+		perror("Error sem_init() sur SemElem\n");	if (sem_init(SemDisp, 1, 1) == -1)
 		perror("Error sem_init() sur SemDisp\n");
 		
 	if (sem_init(SemAct, 1, 1) == -1)
