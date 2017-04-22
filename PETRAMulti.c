@@ -39,19 +39,22 @@ struct 	CAPTEURS
 	unsigned DE : 1;
 } ;
 
-union
+union 
 {
 	struct CAPTEURS capt ;
 	unsigned char byte ;
-} u_capt ;
+} u_capt;
 
 int fd_petra_in, fd_petra_out ;
 caddr_t pShm;
+caddr_t pShmIO;
 caddr_t pSema;
 int value;
+pid_t pidIO;
+
 
 //		0			1				2
-sem_t 	*SemShm, 	*SemChariot, 	*SemArbre;
+sem_t 	*SemShm, 	*SemChariot, 	*SemArbre, *SemDisp, *SemAct;
 
 int readCapt(void);
 int writeAct(void);
@@ -65,6 +68,8 @@ int ProcessPiece(void);
 int nanoWait(int sec, long nsec);
 int CheckDispenser(void);
 int CheckPlace(void);
+void affAll(void);
+int processIO(void);
 
 
 /***********************************
@@ -75,8 +80,8 @@ int CheckPlace(void);
  */
 int main(int argc, char *argv[])
 {
-	fd_petra_out = open ( "/dev/actuateursPETRA", O_WRONLY );
-	if ( fd_petra_in == -1 )
+	fd_petra_out = open ( "/dev/actuateursPETRA", O_RDWR );
+	if ( fd_petra_out == -1 )
 	{
 		perror ( "MAIN : Erreur ouverture PETRA_OUT" );
 		return 1;
@@ -93,24 +98,36 @@ int main(int argc, char *argv[])
 	}
 	else
 		printf ("MAIN: PETRA_IN opened\n");
+		
+	
+
+	
 	fflush(stdout);
 	printf("init\n");
 	fflush(stdout);
 	pShm = initShm();
 	pSema = initSema();
+	//affAll();
+	pidIO= fork() ;
+	nanoWait(1,0);
+	if((pidIO)== 0)
+	{
+		processIO();
+	}
 
 	while(1)
 	{
-		printf("Debut while(1)\n");
+		printf("\n\nDebut while(1)\n");
 		fflush(stdout);
 		int Place=0;
 		int FullStop = 0;
+		
 		FullStop = CheckDispenser();
 		if(CheckDispenser() == 1)
 		{
-			printf("check dispenser");
-			u_act.byte = 0x00;
-			writeAct();
+			printf("check dispenser FAIL\n");
+			//u_act.byte = 0x00;
+			//writeAct();
 			close ( fd_petra_in );
 			close ( fd_petra_out );
 			exit(EXIT_SUCCESS);
@@ -121,11 +138,12 @@ int main(int argc, char *argv[])
 		{
 			printf("Place non disponible\n");
 			fflush(stdout);
-			nanoWait(1,0);
+			nanoWait(5,0);
 		}
-		sem_getvalue(SemShm, &value);
+		sem_getvalue(SemDisp, &value);
 		printf("Place dispo  %d\n", value);
 		fflush(stdout);
+		
 		sem_wait(SemShm);
 		printf("fork\n");
 		fflush(stdout);
@@ -135,17 +153,15 @@ int main(int argc, char *argv[])
 			exit(0);
 		}
 
-		if(!(*(pShm+Place)))
+		if((*(pShm+Place)) > 0)
 		{
 			ProcessPiece();
+			printf("fin process piece\n");
+			fflush(stdout);
 			exit(0);
 		}
 		sem_post(SemShm);
-
-
-
-		u_act.byte = 0x00;
-		writeAct();
+		nanoWait(1,0);
 	}
 
 	close ( fd_petra_in );
@@ -164,44 +180,63 @@ int ProcessPiece(void)
 	 *  Section Prise piece
 	 *************************/
 	sem_wait(SemChariot);
+	printf("chario pris\n");
+	fflush(stdout);
+	sem_wait(SemDisp);
+	printf("disp pris pris\n");
+	fflush(stdout);
+	readAct();
 	u_act.act.CP = 00;
 	writeAct();
 	nanoWait(0,500000000);
 	// A verifier !!!!
+	printf("verif c\ns");
+	//affAll();
 	readCapt();
-	while(u_capt.capt.CS != 1)
+	while(u_capt.capt.CS == 1)
 	{
 		readCapt();
 	}
 	// A verifier !!!!
 	printf("Chariot en position 00\n");
+	readAct();
 	u_act.act.PA = 1;
 	writeAct();
 	nanoWait(2,0);
+	readAct();
 	u_act.act.PV = 1;
 	writeAct();
 	nanoWait(1,0);
 	printf("Ventouse active sur piece\n");
+	readAct();
 	u_act.act.PA = 0;
 	writeAct();
 	nanoWait(2,0);
+	readAct();
 	u_act.act.CP = 01;
 	writeAct();
 	nanoWait(0,500000000);
 	// A verifier !!!!
 	readCapt();
-	while(u_capt.capt.CS != 1)
+	while(u_capt.capt.CS == 1)
 	{
 		readCapt();
 	}
 	// A verifier !!!!
 	printf("Chariot en position 01\n");
+	readAct();
 	u_act.act.PV = 0;
 	writeAct();
 	nanoWait(0,500000000);
 	printf("Piece lachee sur C1\n");
+	
+	
 	sem_post(SemChariot);
+	readAct();
 	u_act.act.C1 = 1;
+	u_act.act.CP = 00;
+	
+	writeAct();
 	/*****************************
 	 * Section Detection Slot
 	 *****************************/
@@ -211,41 +246,76 @@ int ProcessPiece(void)
 	{
 		readCapt();
 	}
-	// A verifier !!!!
-	for(i = 0; i < 150;i++)
+	
+	//printf("Detection fin piece\n");
+	readCapt();
+	while(u_capt.capt.S != 0)
 	{
 		readCapt();
-		if(u_capt.capt.S != 0)
+	}
+	//printf("soit fin piece soit debut slot\n");
+	readCapt();
+	i = 0;
+	Slot = 0;
+	while(i<150)
+	{
+		if(i < 150 && u_capt.capt.S == 1)
 		{
 			Slot = 1;
-			printf("Slot correct\n");
 			break;
 		}
-		nanoWait(0,10000000);
+		if(i == 150)
+			break;
+		
+		nanoWait(0, 10000000);
+		i++;
+		readCapt();
 	}
+	i=0;
+	if(Slot == 1)
+		printf("Piece slot bonne\n");
+	else
+		printf("piece slot mauvais\n");
+	//sem_post(SemDisp);
 	nanoWait(4,0);
+	
 	// A verifier !!!!
 	/***************************
 	 *  Section Grappin
 	 ***************************/
 	printf("Utilisation du grappin\n");
 	sem_wait(SemArbre);
+	readAct();
+	
 	u_act.act.GA = 1;
 	writeAct();
-	nanoWait(0,750000000);
-	u_act.act.PA = 1;
+	nanoWait(1,0);
+	readAct();
+	u_act.act.AA = 1;
 	writeAct();
+	nanoWait(1,0);
 	readCapt();
 	while(u_capt.capt.AP != 1)
 	{
 		readCapt();
 	}
+	nanoWait(1,0);
+	readAct();
 	u_act.act.C2 = 1;
+	writeAct();
+	readAct();
 	u_act.act.GA = 0;
 	writeAct();
 	nanoWait(1,0);
-	u_act.act.PA = 0;
+	readCapt();
+	readAct();
+	u_act.act.AA = 0;
 	writeAct();
+	while(u_capt.capt.AP != 0)
+	{
+		readCapt();
+	}
+	nanoWait(0,500000000);
 	sem_post(SemArbre);
 	/********************************
 	 *  Section CutOut
@@ -264,10 +334,15 @@ int ProcessPiece(void)
 		CutOut = 1;
 		printf("CutOut correct\n");
 	}
+	else
+	{
+		printf("CutOut Mauvais");
+	}
+	sem_post(SemDisp);
 	/***********************************
 	 *  Section Choix destination piece
 	 ***********************************/
-	nanoWait(4,0);
+	nanoWait(2,0);
 	if((Slot == 1) && (CutOut == 1))
 	{
 		/*********************************
@@ -281,52 +356,83 @@ int ProcessPiece(void)
 		/**********************************
 		 *  Piece dans la poubelle
 		 **********************************/
+		 sem_wait(SemChariot);
 		printf("Piece incorrecte\n");
+		readAct();
 		u_act.act.C2 = 0;
 		writeAct();
+		
+		readAct();
 		u_act.act.CP = 03;
+		writeAct();
 		nanoWait(0,500000000);
 		readCapt();
-		while(u_capt.capt.CS != 1)
+		while(u_capt.capt.CS == 1)
 		{
 			readCapt();
 		}
+		readAct();
 		u_act.act.PA = 1;
 		writeAct();
 		nanoWait(1,0);
+		readAct();
 		u_act.act.PV = 1;
 		writeAct();
 		nanoWait(1,0);
+		readAct();
 		u_act.act.PA = 0;
 		writeAct();
 		nanoWait(1,0);
+		readAct();
 		u_act.act.CP = 02;
 		writeAct();
 		nanoWait(0,500000000);
 		readCapt();
-		while(u_capt.capt.CS != 1)
+		while(u_capt.capt.CS == 1)
 		{
 			readCapt();
 		}
+		readAct();
 		u_act.act.PV = 0;
+		writeAct();
+		sem_post(SemChariot);
 	}
 	printf("Fin processus piece\n");
+	fflush(stdout);
 	return 1;
+}
+
+int processIO(void)
+{
+	printf("process IO\n");
+	fflush(stdout);
+	while(1)
+	{
+		//
+		write( fd_petra_out , (unsigned char *)pShmIO , 1);
+		read(fd_petra_in,  (unsigned char *)(pShmIO+sizeof(unsigned char)), 1);
+		nanoWait(0, 5000000);
+	}
 }
 
 int CheckDispenser(void)
 {
 	int Count = 0;
+	sem_wait(SemDisp);
 	readCapt();
 	while(u_capt.capt.DE != 0)
 	{
 		printf("Stock vide\n");
+		sem_post(SemDisp);
 		if(Count == 60)
 			return 1;
+		
 		nanoWait(1,0);
 		Count++;
+		sem_wait(SemDisp);
 		readCapt();
 	}
+	sem_post(SemDisp);
 	return 0;
 }
 
@@ -334,14 +440,17 @@ int CheckPlace(void)
 {
 	int i=0;
 	sem_wait(SemShm);
+	sem_wait(SemDisp);
 	for(i=0;i<SZTAB;i++)
 	{
 		if(*(pShm+i) == 0)
 		{
 			sem_post(SemShm);
+			sem_post(SemDisp);
 			return i;
 		}
 	}
+	sem_post(SemDisp);
 	sem_post(SemShm);
 	return -1;
 }
@@ -357,18 +466,31 @@ int nanoWait(int sec, long nsec)
 }
 
 int readCapt(void)
-{
-	return read ( fd_petra_in , &u_capt.byte , 1 );
+{	
+	u_capt.byte = *(pShmIO+sizeof(unsigned char));
+	return 1;
 }
 
 int writeAct(void)
 {
-	return write ( fd_petra_out , &u_act.byte ,1 );
+	*pShmIO = u_act.byte;
+	return 1;
 }
 
 int readAct(void)
 {
-	return read ( fd_petra_out , &u_act.byte , 1 );
+	u_act.byte = *pShmIO;
+	return 1;
+}
+
+void affAll(void)
+{
+	readAct();
+	readCapt();
+	printf("Affiche all Act puis Capt\n");
+	printf("%d\n",u_act.byte);
+	printf("%d\n",u_capt.byte); 	
+	fflush(stdout);
 }
 
 caddr_t initShm()
@@ -380,6 +502,11 @@ caddr_t initShm()
 	ret = (char *)mmap(0, SZTAB, PROT_WRITE | PROT_READ, MAP_ANONYMOUS | MAP_SHARED, -1, 0);
 	if (*ret == -1)
 		perror("Error mmap()\n");
+	
+	pShmIO = mmap(0,sizeof(unsigned char) + sizeof(unsigned char), PROT_WRITE | PROT_READ, MAP_ANONYMOUS | MAP_SHARED, -1, 0);
+	if (*pShmIO == -1)
+		perror("Error mmap()\n");
+	
 
 	//on init le buffer
 	for (i = 0; i < SZTAB; i++)
@@ -391,7 +518,7 @@ caddr_t initShm()
 
 caddr_t initSema()
 {
-	caddr_t ret = (char *)mmap(0, 3*sizeof(sem_t), PROT_WRITE | PROT_READ, MAP_ANONYMOUS | MAP_SHARED, -1, 0);
+	caddr_t ret = (char *)mmap(0, 5*sizeof(sem_t), PROT_WRITE | PROT_READ, MAP_ANONYMOUS | MAP_SHARED, -1, 0);
 	if (*ret == -1)
 		perror("Error Shm semaphore\n ");
 
@@ -399,6 +526,8 @@ caddr_t initSema()
 	SemShm = (sem_t*)ret;
 	SemChariot = (sem_t*)(ret+sizeof(sem_t));
 	SemArbre = (sem_t*)(ret+2*sizeof(sem_t));
+	SemDisp = (sem_t*)(ret+3*sizeof(sem_t));
+	SemAct = (sem_t*)(ret+4*sizeof(sem_t));
 
 	//on initialise les 3 semaphore
 	if (sem_init(SemShm, 1, 1) == -1)
@@ -409,6 +538,11 @@ caddr_t initSema()
 
 	if (sem_init(SemArbre, 1, 1) == -1)
 		perror("Error sem_init() sur SemElem\n");
-
+		
+	if (sem_init(SemDisp, 1, 1) == -1)
+		perror("Error sem_init() sur SemDisp\n");
+		
+	if (sem_init(SemAct, 1, 1) == -1)
+		perror("Error sem_init() sur SemAct\n");
 	return ret;
 }
