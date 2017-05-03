@@ -52,7 +52,7 @@ caddr_t pShmIO;
 caddr_t pSema;
 int value;
 pid_t pidIO;
-struct sigaction interrupt;
+//struct sigaction interrupt;
 
 
 //		0			1				2
@@ -153,7 +153,10 @@ int main(int argc, char *argv[])
 			perror("Error fork() Piece \n");
 			exit(0);
 		}
-
+		readAct();
+		u_act.act.C1 = 1;
+		u_act.act.C2 = 1;
+		writeAct();
 		if(!(*(pShm+Place)))
 		{
 			ProcessPiece();
@@ -234,10 +237,11 @@ int ProcessPiece(void)
 	
 	sem_post(SemChariot);
 	readAct();
-	u_act.act.C1 = 1;
 	u_act.act.CP = 00;
 	
 	writeAct();
+	nanoWait(2, 0);
+	sem_post(SemDisp);
 	/*****************************
 	 * Section Detection Slot
 	 *****************************/
@@ -256,6 +260,7 @@ int ProcessPiece(void)
 	}
 	//printf("soit fin piece soit debut slot\n");
 	readCapt();
+	
 	i = 0;
 	Slot = 0;
 	while(i<150)
@@ -277,33 +282,31 @@ int ProcessPiece(void)
 		printf("Piece slot bonne\n");
 	else
 		printf("piece slot mauvais\n");
-	sem_post(SemDisp);
-	nanoWait(4,0);
-	
+	//	sem_post(SemDisp);
+	nanoWait(2,0);
+	//sem_post(SemDisp);
 	// A verifier !!!!
 	/***************************
 	 *  Section Grappin
 	 ***************************/
 	printf("Utilisation du grappin\n");
 	sem_wait(SemArbre);
+	nanoWait(1,0);
 	readAct();
 	
 	u_act.act.GA = 1;
 	writeAct();
-	nanoWait(1,0);
+	nanoWait(0,500000000);
 	readAct();
 	u_act.act.AA = 1;
 	writeAct();
 	nanoWait(1,0);
+	printf("AA 11\n");fflush(stdout);
 	readCapt();
 	while(u_capt.capt.AP != 1)
 	{
 		readCapt();
 	}
-	nanoWait(1,0);
-	readAct();
-	u_act.act.C2 = 1;
-	writeAct();
 	readAct();
 	u_act.act.GA = 0;
 	writeAct();
@@ -356,9 +359,14 @@ int ProcessPiece(void)
 		/**********************************
 		 *  Piece dans la poubelle
 		 **********************************/
+		 readAct();
+		u_act.act.C1 = 0;
+		u_act.act.C2 = 0;
+		writeAct();
+		sem_wait(SemArbre);
 		sem_wait(SemDisp);
 		sem_wait(SemChariot);
-		sem_wait(SemArbre);
+		
 		printf("Piece incorrecte\n");
 		readAct();
 		u_act.act.C1 = 0;
@@ -396,14 +404,22 @@ int ProcessPiece(void)
 			readCapt();
 		}
 		readAct();
-		u_act.act.PV = 0;
-		u_act.act.C2 = 1;
-		u_act.act.C1 = 1;
+		u_act.act.PA = 1;
 		writeAct();
 		nanoWait(1,0);
-		sem_post(SemArbre);
+		readAct();
+		u_act.act.PV = 0;
+		writeAct();
+		nanoWait(1,0);
+		readAct();
+		u_act.act.PA = 0;
+		writeAct();
 		readAct();
 		u_act.act.CP = 00;
+		writeAct();
+		readAct();
+		u_act.act.C1 = 1;
+		u_act.act.C2 = 1;
 		writeAct();
 		nanoWait(0,500000000);
 		readCapt();
@@ -413,6 +429,7 @@ int ProcessPiece(void)
 		}
 		sem_post(SemChariot);
 		sem_post(SemDisp);
+		sem_post(SemArbre);
 	}
 	printf("Fin processus piece\n");
 	fflush(stdout);
@@ -462,8 +479,9 @@ int CheckPlace(void)
 	{
 		if(*(pShm+i) == 0)
 		{
-			sem_post(SemShm);
+			
 			sem_post(SemDisp);
+			sem_post(SemShm);
 			return i;
 		}
 	}
@@ -502,8 +520,8 @@ int readAct(void)
 
 void affAll(void)
 {
-	readAct();
-	readCapt();
+	//readAct();
+	//readCapt();
 	printf("Affiche all Act puis Capt\n");
 	printf("%d\n",u_act.byte);
 	printf("%d\n",u_capt.byte); 	
